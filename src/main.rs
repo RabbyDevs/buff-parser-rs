@@ -1,0 +1,207 @@
+use colored::*;
+use futures::future::join_all;
+use regex::Regex;
+use rust_translate::translate_to_english;
+use serde_json::Value;
+use std::fs::File;
+use std::io::BufWriter;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::Path;
+use winconsole::console::{clear, set_title};
+
+#[tokio::main]
+async fn main() {
+    set_title("BUFF-EXPERT | ZANI-RS EDITION").unwrap();
+    clear().unwrap();
+
+    let mut role_ids: Vec<String> = vec![];
+    let mut manual_ids: Vec<String> = vec![];
+
+    if role_ids.is_empty() {
+        println!(
+            "{}",
+            "Enter ID separated by commas(sample: 1407,1507):".bright_yellow()
+        );
+        let mut input_ids = String::new();
+        io::stdin()
+            .read_line(&mut input_ids)
+            .expect("Error reading input");
+        clear().unwrap();
+
+        manual_ids = input_ids
+            .trim()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        role_ids = manual_ids.clone();
+    }
+
+    println!(
+        "Enter filenames (including extension, e.g. file.txt or file.json), separated by commas:"
+    );
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("Error reading input");
+    clear().unwrap();
+
+    let filenames: Vec<String> = input
+        .trim()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+
+    let re = Regex::new(r"Id:\s*(\d+)\s*\(1\)").expect("Invalid regex");
+    let mut output_buffer = String::new();
+
+    for filename in filenames {
+        println!("{}", format!("Parse from: {}", filename).bright_blue());
+
+        let path = Path::new(&filename);
+
+        if !path.exists() {
+            eprintln!("{}", format!("File not found: {}", filename).bright_red());
+            continue;
+        }
+
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let mut output_lines: Vec<String> = Vec::new();
+
+        match extension.as_str() {
+            "txt" => {
+                println!("{}", "Parse TXT file".bright_cyan());
+                let file = File::open(&path).expect("Error open file");
+                let reader = BufReader::new(file);
+
+                for line in reader.lines() {
+                    if let Ok(line_content) = line {
+                        if let Some(caps) = re.captures(&line_content) {
+                            if let Some(id_match) = caps.get(1) {
+                                let id = id_match.as_str();
+                                if role_ids.iter().any(|prefix| id.starts_with(prefix)) {
+                                    output_lines.push(format!("{},", id));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            "json" => {
+                println!("{}", "Parse JSON file".bright_magenta());
+                let mut file = File::open(&path).expect("Error open file");
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)
+                    .expect("Error reading input");
+
+                if let Ok(json_data) = serde_json::from_str::<Value>(&contents) {
+                    if let Some(array) = json_data.as_array() {
+                        println!(
+                            "{}",
+                            format!("Records found: {}", array.len()).bright_white()
+                        );
+
+                        let mut translation_futures = Vec::new();
+
+                        for entry in array {
+                            if let Some(id_value) = entry.get("Id") {
+                                if let Some(id_number) = id_value.as_u64() {
+                                    let id_str = id_number.to_string();
+                                    if role_ids.iter().any(|prefix| id_str.starts_with(prefix)) {
+                                        let ge_desc = entry
+                                            .get("GeDesc")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default();
+
+                                        let id_clone = id_str.clone();
+
+                                        let ge_clone = ge_desc.replace("%", "percent"); // replace bcs w/ "%" after translate broke text
+
+                                        translation_futures.push(async move {
+                                            println!(
+                                                "{}",
+                                                format!("Translate: {}", ge_clone).dimmed()
+                                            );
+                                            let result = translate_to_english(&ge_clone).await;
+                                            (id_clone, ge_clone, result)
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        let results = join_all(translation_futures).await;
+
+                        for result in results {
+                            match result.2 {
+                                Ok(translated) => {
+                                    output_lines.push(format!(
+                                        "{}, {} // Translated: {}",
+                                        result.0, result.1, translated
+                                    ));
+                                }
+                                Err(e) => {
+                                    eprintln!("Error translate: {}", e);
+                                    output_lines.push(format!(
+                                        "{}, {} // Translation failed",
+                                        result.0, result.1
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            _ => {
+                eprintln!(
+                    "{}",
+                    format!("File format not supported: {}", filename).bright_yellow()
+                );
+                continue;
+            }
+        }
+
+        output_buffer.push_str(&format!("\n{}:\n", filename));
+        println!("\n{}:", filename.bright_cyan().bold());
+
+        if output_lines.is_empty() {
+            output_buffer.push_str("No matches found.\n");
+            println!("{}", "No matches found.".dimmed());
+        } else {
+            output_buffer.push_str(&output_lines.join("\n"));
+            output_buffer.push('\n');
+            for line in &output_lines {
+                println!("{}", line.bright_red());
+            }
+        }
+    }
+
+    let output_filename = if !manual_ids.is_empty() {
+        format!("{}.md", manual_ids.join("_"))
+    } else if !role_ids.is_empty() {
+        "buff.md".to_string()
+    } else {
+        "output.md".to_string()
+    };
+
+    let path = Path::new(&output_filename);
+    let file =
+        File::create(path).unwrap_or_else(|_| panic!("File creation error {}", output_filename));
+    let mut writer = BufWriter::new(file);
+    writer
+        .write_all(output_buffer.as_bytes())
+        .expect("Error writing to a file");
+    writer.flush().expect("Buffer reset error");
+    println!("\nSave in {}", output_filename.bright_green());
+
+    println!("\nPress Enter to exit...");
+    let _ = io::stdin().read_line(&mut String::new());
+}
