@@ -120,16 +120,24 @@ async fn main() {
                                             .and_then(Value::as_str)
                                             .unwrap_or_default();
 
+                                        // TODO: fix translate w/o wheelchair
                                         let id_clone = id_str.clone();
-
-                                        let ge_clone = ge_desc.replace("%", "percent"); // replace bcs w/ "%" after translate broke text
+                                        let ge_clone = ge_desc.replace("%", "percent");
 
                                         translation_futures.push(async move {
                                             println!(
                                                 "{}",
                                                 format!("Translate: {}", ge_clone).dimmed()
                                             );
-                                            let result = translate_to_english(&ge_clone).await;
+                                            let result = translate_to_english(&ge_clone)
+                                                .await
+                                                .map(|translated| {
+                                                    translated.replace("percent", "%")
+                                                })
+                                                .unwrap_or_else(|_| {
+                                                    ge_clone.clone().replace("percent", "%")
+                                                });
+
                                             (id_clone, ge_clone, result)
                                         });
                                     }
@@ -140,21 +148,12 @@ async fn main() {
                         let results = join_all(translation_futures).await;
 
                         for result in results {
-                            match result.2 {
-                                Ok(translated) => {
-                                    output_lines.push(format!(
-                                        "{}, {} // Translated: {}",
-                                        result.0, result.1, translated
-                                    ));
-                                }
-                                Err(e) => {
-                                    eprintln!("Error translate: {}", e);
-                                    output_lines.push(format!(
-                                        "{}, {} // Translation failed",
-                                        result.0, result.1
-                                    ));
-                                }
-                            }
+                            output_lines.push(format!(
+                                "{}, {} // Translated: {}",
+                                result.0,
+                                result.1.replace("percent", "%"),
+                                result.2
+                            ));
                         }
                     }
                 }
