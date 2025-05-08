@@ -224,25 +224,15 @@ async fn main() {
                             .collect::<Vec<_>>()
                             .await;
 
-                        for (i, result) in results.iter().enumerate() {
+                        for result in results {
                             output_lines.push(format!(
                                 "{} ({}), {} // Translated: {}",
                                 result.0, result.1, result.2, result.3
                             ));
-
-                            if i % 100 == 0 {
-                                println!(
-                                    "Processed {}/{} ({:.1}%)",
-                                    i + 1,
-                                    counter,
-                                    (i + 1) as f32 / counter as f32 * 100.0
-                                );
-                            }
                         }
                     }
                 }
             }
-
             _ => {
                 eprintln!(
                     "{}",
