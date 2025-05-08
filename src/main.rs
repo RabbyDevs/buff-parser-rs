@@ -53,17 +53,6 @@ async fn main() {
         .map(|s| s.trim().to_string())
         .collect();
 
-    println!(
-        "{}",
-        "Enter target language code (e.g., en, fr, de):".bright_yellow()
-    );
-    let mut target_lang = String::new();
-    io::stdin()
-        .read_line(&mut target_lang)
-        .expect("Failed to read language input");
-    let target_lang = target_lang.trim().to_lowercase();
-    clear().unwrap();
-
     let re = Regex::new(r"Id:\s*(\d+)\s*\(1\)").expect("Invalid regex");
     let mut output_buffer = String::new();
 
@@ -118,6 +107,17 @@ async fn main() {
                             "{}",
                             format!("Records found: {}", array.len()).bright_white()
                         );
+
+                        println!(
+                            "{}",
+                            "Enter target language code (e.g., en, fr, de):".bright_yellow()
+                        );
+                        let mut target_lang = String::new();
+                        io::stdin()
+                            .read_line(&mut target_lang)
+                            .expect("Failed to read language input");
+                        let target_lang = target_lang.trim().to_lowercase();
+                        clear().unwrap();
 
                         let mut translation_futures = Vec::new();
 
