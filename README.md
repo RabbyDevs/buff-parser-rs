@@ -1,4 +1,4 @@
-# Buff Parser for Wuthering Waves (made by sigmas for sigmas)
+# Buff Parser for Wuthering Waves
 
 A utility for parsing buff data from Wuthering Waves game files and automatically translating matched entries into your preferred language.
 
