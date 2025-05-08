@@ -1,7 +1,7 @@
 use colored::*;
 use futures::future::join_all;
 use regex::Regex;
-use rust_translate::translate_to_english;
+use rust_translate::translate;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufWriter;
@@ -11,7 +11,7 @@ use winconsole::console::{clear, set_title};
 
 #[tokio::main]
 async fn main() {
-    set_title("BUFF-EXPERT | ZANI-RS EDITION").unwrap();
+    set_title("BUFF-PARSER-RS").unwrap();
     clear().unwrap();
 
     let mut role_ids: Vec<String> = vec![];
@@ -52,6 +52,17 @@ async fn main() {
         .split(',')
         .map(|s| s.trim().to_string())
         .collect();
+
+    println!(
+        "{}",
+        "Enter target language code (e.g., en, fr, de):".bright_yellow()
+    );
+    let mut target_lang = String::new();
+    io::stdin()
+        .read_line(&mut target_lang)
+        .expect("Failed to read language input");
+    let target_lang = target_lang.trim().to_lowercase();
+    clear().unwrap();
 
     let re = Regex::new(r"Id:\s*(\d+)\s*\(1\)").expect("Invalid regex");
     let mut output_buffer = String::new();
@@ -120,25 +131,22 @@ async fn main() {
                                             .and_then(Value::as_str)
                                             .unwrap_or_default();
 
-                                        // TODO: fix translate w/o wheelchair
                                         let id_clone = id_str.clone();
                                         let ge_clone = ge_desc.replace("%", "percent");
+                                        let target_lang_clone = target_lang.clone();
 
                                         translation_futures.push(async move {
-                                            println!(
-                                                "{}",
-                                                format!("Translate: {}", ge_clone).dimmed()
-                                            );
-                                            let result = translate_to_english(&ge_clone)
-                                                .await
-                                                .map(|translated| {
-                                                    translated.replace("percent", "%")
-                                                })
-                                                .unwrap_or_else(|_| {
-                                                    ge_clone.clone().replace("percent", "%")
-                                                });
+                                            let result =
+                                                translate(&ge_clone, "auto", &target_lang_clone)
+                                                    .await
+                                                    .map(|translated| {
+                                                        translated.replace("percent", "%")
+                                                    })
+                                                    .unwrap_or_else(|_| {
+                                                        ge_clone.replace("percent", "%")
+                                                    });
 
-                                            (id_clone, ge_clone, result)
+                                            (id_clone, ge_clone.replace("percent", "%"), result)
                                         });
                                     }
                                 }
@@ -150,9 +158,7 @@ async fn main() {
                         for result in results {
                             output_lines.push(format!(
                                 "{}, {} // Translated: {}",
-                                result.0,
-                                result.1.replace("percent", "%"),
-                                result.2
+                                result.0, result.1, result.2
                             ));
                         }
                     }
@@ -199,7 +205,7 @@ async fn main() {
         .write_all(output_buffer.as_bytes())
         .expect("Error writing to a file");
     writer.flush().expect("Buffer reset error");
-    println!("\nSave in {}", output_filename.bright_green());
+    println!("\nSaved to {}", output_filename.bright_green());
 
     println!("\nPress Enter to exit...");
     let _ = io::stdin().read_line(&mut String::new());
