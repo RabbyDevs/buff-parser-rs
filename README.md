@@ -1,13 +1,13 @@
-# Buff Parser for Wuthering Waves
+# Buff Parser for WW
 
-A utility for parsing buff data from Wuthering Waves game files and automatically translating matched entries into your preferred language.
+A utility for parsing buff data from WW game files and automatically translating matched entries into your preferred language.
 
 ---
 
 ## ✨ Features
 
 - Supports `.txt` and `.json` input files.
-- Filters entries based on matching ID prefixes.
+- Filters entries based on matching ID prefixes. [Characters ids](https://github.com/yuhkix/wuwa-ids/blob/main/characters.md)
 - Automatically translates descriptions into a target language.
 - Outputs results to a neatly formatted `.md` file.
 
