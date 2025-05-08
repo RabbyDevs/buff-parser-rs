@@ -1,5 +1,5 @@
 use colored::*;
-use futures::future::join_all;
+use futures::stream::{self, StreamExt};
 use regex::Regex;
 use rust_translate::translate;
 use serde_json::Value;
@@ -7,17 +7,70 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
+use tokio::time::{Duration, sleep};
 use winconsole::console::{clear, set_title};
+
+const CONCURRENT_REQUESTS: usize = 1000;
+const REQUEST_DELAY: u64 = 500;
+const RETRY_ATTEMPTS: u32 = 3;
+
+async fn translate_with_retry(text: &str, target_lang: &str) -> String {
+    let mut attempts = 0;
+    let original_text = text.replace("%", "percent");
+
+    loop {
+        match translate(&original_text, "auto", target_lang).await {
+            Ok(translated) => return translated.replace("percent", "%"),
+            Err(e) if attempts < RETRY_ATTEMPTS => {
+                let delay_secs = 2u64.pow(attempts);
+                eprintln!(
+                    "Retry {} for '{}...' (Error: {}), waiting {}s",
+                    attempts + 1,
+                    &text.chars().take(20).collect::<String>(),
+                    e,
+                    delay_secs
+                );
+                sleep(Duration::from_secs(delay_secs)).await;
+                attempts += 1;
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to translate after {} attempts: {}",
+                    RETRY_ATTEMPTS, e
+                );
+                return original_text.replace("percent", "%");
+            }
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
     set_title("BUFF-PARSER-RS").unwrap();
     clear().unwrap();
 
+    let parse_all_buffs = loop {
+        println!("{}", "1) all buffs\n2) buffs for character".bright_yellow());
+        let mut choice = String::new();
+        io::stdin()
+            .read_line(&mut choice)
+            .expect("Failed to read choice");
+        clear().unwrap();
+
+        match choice.trim() {
+            "1" => break true,
+            "2" => break false,
+            _ => {
+                println!("{}", "Invalid choice, please enter 1 or 2".bright_red());
+                continue;
+            }
+        }
+    };
+
     let mut role_ids: Vec<String> = vec![];
     let mut manual_ids: Vec<String> = vec![];
 
-    if role_ids.is_empty() {
+    if !parse_all_buffs {
         println!(
             "{}",
             "Enter ID separated by commas(sample: 1407,1507):".bright_yellow()
@@ -85,7 +138,9 @@ async fn main() {
                         if let Some(caps) = re.captures(&line_content) {
                             if let Some(id_match) = caps.get(1) {
                                 let id = id_match.as_str();
-                                if role_ids.iter().any(|prefix| id.starts_with(prefix)) {
+                                if parse_all_buffs
+                                    || role_ids.iter().any(|prefix| id.starts_with(prefix))
+                                {
                                     output_lines.push(format!("{},", id));
                                 }
                             }
@@ -120,46 +175,69 @@ async fn main() {
                         clear().unwrap();
 
                         let mut translation_futures = Vec::new();
+                        let mut counter = 0;
 
-                        for entry in array {
+                        for (index, entry) in array.iter().enumerate() {
                             if let Some(id_value) = entry.get("Id") {
                                 if let Some(id_number) = id_value.as_u64() {
                                     let id_str = id_number.to_string();
-                                    if role_ids.iter().any(|prefix| id_str.starts_with(prefix)) {
+
+                                    if parse_all_buffs
+                                        || role_ids.iter().any(|prefix| id_str.starts_with(prefix))
+                                    {
                                         let ge_desc = entry
                                             .get("GeDesc")
                                             .and_then(Value::as_str)
                                             .unwrap_or_default();
 
+                                        let dur_policy = entry
+                                            .get("DurationPolicy")
+                                            .and_then(Value::as_u64)
+                                            .unwrap_or(0);
+
                                         let id_clone = id_str.clone();
-                                        let ge_clone = ge_desc.replace("%", "percent");
+                                        let ge_clone = ge_desc.to_string();
                                         let target_lang_clone = target_lang.clone();
 
                                         translation_futures.push(async move {
-                                            let result =
-                                                translate(&ge_clone, "auto", &target_lang_clone)
-                                                    .await
-                                                    .map(|translated| {
-                                                        translated.replace("percent", "%")
-                                                    })
-                                                    .unwrap_or_else(|_| {
-                                                        ge_clone.replace("percent", "%")
-                                                    });
+                                            if index % 1500 == 0 {
+                                                sleep(Duration::from_millis(REQUEST_DELAY)).await;
+                                            }
 
-                                            (id_clone, ge_clone.replace("percent", "%"), result)
+                                            let translated =
+                                                translate_with_retry(&ge_clone, &target_lang_clone)
+                                                    .await;
+
+                                            (id_clone, dur_policy, ge_clone, translated)
                                         });
+
+                                        counter += 1;
                                     }
                                 }
                             }
                         }
 
-                        let results = join_all(translation_futures).await;
+                        println!("Starting translation of {} entries...", counter);
 
-                        for result in results {
+                        let results = stream::iter(translation_futures)
+                            .buffer_unordered(CONCURRENT_REQUESTS)
+                            .collect::<Vec<_>>()
+                            .await;
+
+                        for (i, result) in results.iter().enumerate() {
                             output_lines.push(format!(
-                                "{}, {} // Translated: {}",
-                                result.0, result.1, result.2
+                                "{} ({}), {} // Translated: {}",
+                                result.0, result.1, result.2, result.3
                             ));
+
+                            if i % 100 == 0 {
+                                println!(
+                                    "Processed {}/{} ({:.1}%)",
+                                    i + 1,
+                                    counter,
+                                    (i + 1) as f32 / counter as f32 * 100.0
+                                );
+                            }
                         }
                     }
                 }
@@ -189,7 +267,9 @@ async fn main() {
         }
     }
 
-    let output_filename = if !manual_ids.is_empty() {
+    let output_filename = if parse_all_buffs {
+        "all_buffs.md".to_string()
+    } else if !manual_ids.is_empty() {
         format!("{}.md", manual_ids.join("_"))
     } else if !role_ids.is_empty() {
         "buff.md".to_string()
