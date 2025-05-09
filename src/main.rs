@@ -19,7 +19,7 @@ async fn translate_with_retry(text: &str, target_lang: &str) -> String {
     let original_text = text.replace("%", "percent");
 
     loop {
-        match translate(&original_text, "auto", target_lang).await {
+        match translate(&original_text, "zh-TW", target_lang).await {
             Ok(translated) => return translated.replace("percent", "%"),
             Err(e) if attempts < RETRY_ATTEMPTS => {
                 let delay_secs = 2u64.pow(attempts);
@@ -50,7 +50,10 @@ async fn main() {
     clear().unwrap();
 
     let parse_all_buffs = loop {
-        println!("{}", "1) all buffs\n2) buffs for character".bright_yellow());
+        println!(
+                    "{}",
+                    "1) All Buffs\n2) Character Specific Buffs".bright_yellow()
+        );
         let mut choice = String::new();
         io::stdin()
             .read_line(&mut choice)
@@ -73,7 +76,7 @@ async fn main() {
     if !parse_all_buffs {
         println!(
             "{}",
-            "Enter ID separated by commas(sample: 1407,1507):".bright_yellow()
+            "Enter IDs, separated by commas (e.g., 1407, 1507):".bright_yellow()
         );
         let mut input_ids = String::new();
         io::stdin()
@@ -91,7 +94,7 @@ async fn main() {
     }
 
     println!(
-        "Enter filenames (including extension, e.g. file.txt or file.json), separated by commas:"
+        "Enter filenames (including extensions, e.g., file.txt, file.json), separated by commas:"
     );
 
     let mut input = String::new();
@@ -131,7 +134,7 @@ async fn main() {
         match extension.as_str() {
             "txt" => {
                 println!("{}", "Parse TXT file".bright_cyan());
-                let file = File::open(&path).expect("Error open file");
+                let file = File::open(&path).expect("Error opening file");
                 let reader = BufReader::new(file);
 
                 for line in reader.lines() {
@@ -152,7 +155,7 @@ async fn main() {
 
             "json" => {
                 println!("{}", "Parse JSON file".bright_magenta());
-                let mut file = File::open(&path).expect("Error open file");
+                let mut file = File::open(&path).expect("Error opening file");
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)
                     .expect("Error reading input");
@@ -171,7 +174,7 @@ async fn main() {
                         let mut target_lang = String::new();
                         io::stdin()
                             .read_line(&mut target_lang)
-                            .expect("Failed to read language input");
+                            .expect("Failed to read language input.");
                         let target_lang = target_lang.trim().to_lowercase();
                         clear().unwrap();
 
@@ -236,7 +239,7 @@ async fn main() {
             _ => {
                 eprintln!(
                     "{}",
-                    format!("File format not supported: {}", filename).bright_yellow()
+                    format!("Unsupported file format: {}", filename).bright_yellow()
                 );
                 continue;
             }
@@ -246,8 +249,8 @@ async fn main() {
         println!("\n{}:", filename.bright_cyan().bold());
 
         if output_lines.is_empty() {
-            output_buffer.push_str("No matches found.\n");
-            println!("{}", "No matches found.".dimmed());
+            output_buffer.push_str("No matching entries found.\n");
+            println!("{}", "No matching entries found.".dimmed());
         } else {
             output_buffer.push_str(&output_lines.join("\n"));
             output_buffer.push('\n');
@@ -270,13 +273,13 @@ async fn main() {
 
     let path = Path::new(&output_filename);
     let file =
-        File::create(path).unwrap_or_else(|_| panic!("File creation error {}", output_filename));
+        File::create(path).unwrap_or_else(|_| panic!("Failed to create file: {}", output_filename));
     let mut writer = BufWriter::new(file);
     writer
         .write_all(output_buffer.as_bytes())
-        .expect("Error writing to a file");
-    writer.flush().expect("Buffer reset error");
-    println!("\nTotal buffs: {}\nSaved to {}", total_buffs, output_filename.bright_green());
+        .expect("Error writing to file.");
+    writer.flush().expect("Buffer reset failed.");
+    println!("\nSaved to {}", output_filename.bright_green());
 
     println!("\nPress Enter to exit...");
     let _ = io::stdin().read_line(&mut String::new());
