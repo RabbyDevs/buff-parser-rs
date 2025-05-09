@@ -108,6 +108,7 @@ async fn main() {
 
     let re = Regex::new(r"Id:\s*(\d+)\s*\(1\)").expect("Invalid regex");
     let mut output_buffer = String::new();
+    let mut total_buffs = 0;
 
     for filename in filenames {
         println!("{}", format!("Parse from: {}", filename).bright_blue());
@@ -175,7 +176,6 @@ async fn main() {
                         clear().unwrap();
 
                         let mut translation_futures = Vec::new();
-                        let mut counter = 0;
 
                         for (index, entry) in array.iter().enumerate() {
                             if let Some(id_value) = entry.get("Id") {
@@ -211,13 +211,13 @@ async fn main() {
                                             (id_clone, dur_policy, ge_clone, translated)
                                         });
 
-                                        counter += 1;
+                                        total_buffs += 1;
                                     }
                                 }
                             }
                         }
 
-                        println!("Starting translation of {} entries...", counter);
+                        println!("Starting translation of {} entries...", total_buffs);
 
                         let results = stream::iter(translation_futures)
                             .buffer_unordered(CONCURRENT_REQUESTS)
@@ -242,7 +242,7 @@ async fn main() {
             }
         }
 
-        output_buffer.push_str(&format!("\n{}:\n", filename));
+        output_buffer.push_str(&format!("{}:\n", filename));
         println!("\n{}:", filename.bright_cyan().bold());
 
         if output_lines.is_empty() {
@@ -254,6 +254,7 @@ async fn main() {
             for line in &output_lines {
                 println!("{}", line.bright_red());
             }
+            output_buffer.push_str(&format!("\nTotal buffs: {}", total_buffs));
         }
     }
 
@@ -275,7 +276,7 @@ async fn main() {
         .write_all(output_buffer.as_bytes())
         .expect("Error writing to a file");
     writer.flush().expect("Buffer reset error");
-    println!("\nSaved to {}", output_filename.bright_green());
+    println!("\nTotal buffs: {}\nSaved to {}", total_buffs, output_filename.bright_green());
 
     println!("\nPress Enter to exit...");
     let _ = io::stdin().read_line(&mut String::new());
